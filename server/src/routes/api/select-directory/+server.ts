@@ -10,7 +10,7 @@ export async function POST() {
 			'--directory'
 		]);
 		return json({
-			output: result.stdout
+			directory: result.stdout
 		});
 	} catch (err) {
 		return json({

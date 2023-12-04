@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import {unified} from 'unified'
 import remarkParse from 'remark-parse'
 import { visit } from 'unist-util-visit'
+import chalk from 'chalk'
 
 const { values, positionals } = parseArgs({
 	allowPositionals: true,
@@ -26,16 +27,27 @@ if (values.help) {
 }
 
 const root = path.resolve(positionals.length > 0 ? positionals[0] : process.cwd())
-/** @typedef {{root: string, indexFile: string}} Ctx */
+/** @typedef {{root: string, dataFile: string}} Ctx */
 /** @type {Ctx} */
 const ctx = {
 	root,
-	indexFile: path.join(root, '.cache', '.data.json')
+	dataFile: path.join(root, '.cache', 'data.json')
 }
-console.info('ctx', ctx)
 
-if (!existsSync(ctx.indexFile)) {
-	await fs.writeFile(ctx.indexFile, '{ "references": [] }\n')
+console.log(`${chalk.blue(`Root directory:`)} ${ctx.root}`)
+
+await fs.mkdir(path.dirname(ctx.dataFile), { recursive: true })
+if (!existsSync(ctx.dataFile)) {
+	await fs.writeFile(ctx.dataFile, '{ "references": [] }\n')
+}
+const ignoreList = ['.git', 'node_modules', '.cache']
+for (const path of await globby(root, {
+	ignore: ignoreList
+})) {
+	await updateIndex(ctx, {
+		path,
+		type: 'create',
+	})
 }
 await watcher.subscribe(root,
 	async (err, events) => {
@@ -48,11 +60,10 @@ await watcher.subscribe(root,
 			console.log(event)
 
 			await updateIndex(ctx, event)
-
 			console.log()
 		}
 	}, {
-	ignore: ['.git', 'node_modules', '.cache']
+	ignore: ignoreList
 }
 );
 
@@ -62,37 +73,36 @@ await watcher.subscribe(root,
  */
 async function updateIndex(ctx, event) {
 	const relPath = toRelativePath(ctx.root, event.path)
-	const indexFileContent = await fs.readFile(ctx.indexFile, 'utf-8')
+	const indexFileContent = await fs.readFile(ctx.dataFile, 'utf-8')
 	/** @type {import('./index.d.ts').IndexFile} */
 	const indexFileJson = JSON.parse(indexFileContent)
 	const mimeType = mimeTypes.lookup(relPath)
 
-	// Update hashes
+	console.log(relPath, mimeType, event)
 	{
 		if (event.type === 'create') {
-			const content = await fs.readFile(event.path, 'utf-8')
-			console.log(relPath, mimeType)
 			if (mimeType === 'text/markdown') {
+				const content = await fs.readFile(event.path, 'utf-8')
 				const indexOfExistingEntry = indexFileJson.references.findIndex((ref) => {
 					return ref.file === relPath
 				})
 				if (indexOfExistingEntry !== -1) {
-					throw new Error(`Adding references for file ${relPath}, but it already exists in index file!`)
+					await removeAllReferences(indexFileJson, relPath)
 				}
 				
 				await addAllReferences(indexFileJson, relPath, content, event)
-				await fs.writeFile(ctx.indexFile, JSON.stringify(indexFileJson, null, '\t'))
+				await fs.writeFile(ctx.dataFile, JSON.stringify(indexFileJson, null, '\t'))
 			}
 		} else if (event.type === 'delete') {
 			if (mimeType === 'text/markdown') {
 				await removeAllReferences(indexFileJson, relPath)
-				await fs.writeFile(ctx.indexFile, JSON.stringify(indexFileJson, null, '\t'))
+				await fs.writeFile(ctx.dataFile, JSON.stringify(indexFileJson, null, '\t'))
 			}
 		} else if (event.type === 'update') {
 			await removeAllReferences(indexFileJson, relPath)
 			const content = await fs.readFile(event.path, 'utf-8')
 			await addAllReferences(indexFileJson, relPath, content, event)
-			await fs.writeFile(ctx.indexFile, JSON.stringify(indexFileJson, null, '\t'))
+			await fs.writeFile(ctx.dataFile, JSON.stringify(indexFileJson, null, '\t'))
 		}
 	}
 }
@@ -127,7 +137,7 @@ async function removeAllReferences(json, relPath) {
 			indexFileJson.references.splice(i, 1)
 		}
 	}
-	await fs.writeFile(ctx.indexFile, JSON.stringify(indexFileJson, null, '\t'))
+	await fs.writeFile(ctx.dataFile, JSON.stringify(indexFileJson, null, '\t'))
 }
 
 /**
@@ -138,6 +148,7 @@ async function addAllReferences(json, relPath, content, event) {
 	const indexFileJson = json
 
 	const parsedReferences = await parseMarkdownForReferences(event.path)
+	console.log(parsedReferences);
 	for (const ref of parsedReferences) {
 		indexFileJson.references.push({
 			file: relPath,
@@ -154,9 +165,10 @@ async function addAllReferences(json, relPath, content, event) {
  */
 async function parseMarkdownForReferences(filepath) {
 	const content = await fs.readFile(filepath, { encoding: 'utf-8' })
-	const tree = await unified()
+	const tree = unified()
 		.use(remarkParse)
 		.parse(content)
+	console.log('link', tree.children[1]);
 
 	/** @type {Array<{name: string, link: string}>} */
 	const links = []
@@ -165,7 +177,13 @@ async function parseMarkdownForReferences(filepath) {
 			name: node?.children?.[0]?.value ?? 'UNKNOWN',
 			link: node.url
 		})
-	 })
+	})
+	visit(tree, 'image', (node, index, parent) => {
+	links.push({
+		name: node.alt ?? 'UNKNOWN',
+		link: node.url
+	})
+	})
 
 	return links
 }

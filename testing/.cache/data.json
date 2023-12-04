@@ -1,0 +1,16 @@
+{
+	"references": [
+		{
+			"file": "./rock.md",
+			"md5": "87cc20b129552c5deb53134d60ad2459",
+			"title": "data",
+			"uri": "./reference.md"
+		},
+		{
+			"file": "./rock.md",
+			"md5": "87cc20b129552c5deb53134d60ad2459",
+			"title": "other",
+			"uri": "./blah"
+		}
+	]
+}

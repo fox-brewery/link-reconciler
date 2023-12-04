@@ -1,5 +1,5 @@
 {
-	"name": "server",
+	"name": "@app/server",
 	"version": "0.0.1",
 	"private": true,
 	"scripts": {
@@ -34,12 +34,14 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@app/util": "workspace:^",
 		"@trpc/client": "^10.44.1",
 		"@trpc/server": "^10.44.1",
 		"@types/cytoscape": "^3.19.16",
 		"cytoscape": "^3.27.0",
 		"delay": "^6.0.0",
 		"execa": "^8.0.1",
+		"purecss": "^3.0.0",
 		"trpc-sveltekit": "^3.5.22"
 	}
 }
